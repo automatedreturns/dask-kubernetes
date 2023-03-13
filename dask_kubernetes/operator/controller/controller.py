@@ -752,12 +752,10 @@ async def daskautoscaler_adapt(spec, name, namespace, logger, **kwargs):
             if desired_workers > current_replicas:
                 if adapt_state['scaleup'] is not None:
                     if (time.time() - adapt_state['scaleup']['last_request']) < 60:
-                        adapt_state['scaleup']['last_request'] = time.time()
                         logger.info(f"60 seconds not elapsed {adapt_state}")
                         return
                     if adapt_state['scaleup'] is not None:
                         if adapt_state['scaleup']['desired_size'] > desired_workers:
-                            adapt_state['scaleup']['last_request'] = time.time()
                             logger.info(f"60 seconds elapsed {adapt_state} but already scale up is in progress")
                             logger.info(f"{adapt_state}")
                             return
