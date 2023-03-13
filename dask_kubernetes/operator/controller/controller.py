@@ -721,7 +721,7 @@ async def daskautoscaler_adapt(spec, name, namespace, logger, **kwargs):
 
         # Cooldown autoscaling to prevent thrashing
         if time.time() < cooldown_until:
-            logger.debug("Autoscaler for %s is in cooldown", spec["cluster"])
+            logger.info("Autoscaler for %s is in cooldown", spec["cluster"])
             return
 
         # Ask the scheduler for the desired number of worker
