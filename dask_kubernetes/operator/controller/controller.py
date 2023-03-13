@@ -747,32 +747,34 @@ async def daskautoscaler_adapt(spec, name, namespace, logger, **kwargs):
         # Update the default DaskWorkerGroup
         if desired_workers != current_replicas:
             if desired_workers > current_replicas:
-                if (cooldown_until - time.time()) < 200 or time.time() > cooldown_until:
-                    await customobjectsapi.patch_namespaced_custom_object_scale(
-                        group="kubernetes.dask.org",
-                        version="v1",
-                        plural="daskworkergroups",
-                        namespace=namespace,
-                        name=f"{spec['cluster']}-default",
-                        body={"spec": {"replicas": desired_workers}},
-                    )
-                    cooldown_until = time.time() + 220
-                    await customobjectsapi.patch_namespaced_custom_object(
-                        group="kubernetes.dask.org",
-                        version="v1",
-                        plural="daskautoscalers",
-                        namespace=namespace,
-                        name=name,
-                        body={
-                            "metadata": {
-                                "annotations": {
-                                    DASK_AUTOSCALER_COOLDOWN_UNTIL_ANNOTATION: str(
-                                        cooldown_until
-                                    )
-                                }
+                if time.time() < cooldown_until:
+                    if (cooldown_until - time.time()) > 140:
+                        return
+                await customobjectsapi.patch_namespaced_custom_object_scale(
+                    group="kubernetes.dask.org",
+                    version="v1",
+                    plural="daskworkergroups",
+                    namespace=namespace,
+                    name=f"{spec['cluster']}-default",
+                    body={"spec": {"replicas": desired_workers}},
+                )
+                cooldown_until = time.time() + 220
+                await customobjectsapi.patch_namespaced_custom_object(
+                    group="kubernetes.dask.org",
+                    version="v1",
+                    plural="daskautoscalers",
+                    namespace=namespace,
+                    name=name,
+                    body={
+                        "metadata": {
+                            "annotations": {
+                                DASK_AUTOSCALER_COOLDOWN_UNTIL_ANNOTATION: str(
+                                    cooldown_until
+                                )
                             }
-                        },
-                    )
+                        }
+                    },
+                )
             else:
                 if time.time() < cooldown_until:
                     logger.info("Autoscaler for %s is in cooldown", spec["cluster"])
