@@ -828,17 +828,20 @@ async def daskautoscaler_adapt(spec, name, namespace, logger, **kwargs):
                 # else:
                 if adapt_state['scaleup'] is not None:
                     if (time.time() - adapt_state['scaleup']['last_request']) < 240:
+                        adapt_state['scaledown'] = {'desired_size': desired_workers, 'last_request': time.time()}
                         logger.info(f"Last scale up request arrived within past 4 mins skipping scale down")
+                        logger.info(f"{adapt_state}")
                         return
                 if adapt_state['scaledown'] is None:
                     adapt_state['scaledown'] = {'desired_size': desired_workers, 'last_request': time.time()}
+                    adapt_state['scaleup'] = {'desired_size': desired_workers, 'last_request': time.time()}
                 await customobjectsapi.patch_namespaced_custom_object_scale(
                     group="kubernetes.dask.org",
                     version="v1",
                     plural="daskworkergroups",
                     namespace=namespace,
                     name=f"{spec['cluster']}-default",
-                    body={"spec": {"replicas": desired_workers}},
+                    body={"spec": {"replicas": adapt_state['scaledown']['desired_size']}},
                 )
 
             logger.info(
