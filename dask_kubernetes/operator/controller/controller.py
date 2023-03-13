@@ -748,7 +748,8 @@ async def daskautoscaler_adapt(spec, name, namespace, logger, **kwargs):
         if desired_workers != current_replicas:
             if desired_workers > current_replicas:
                 if time.time() < cooldown_until:
-                    if (cooldown_until - time.time()) > 140:
+                    if (cooldown_until - time.time()) > 260:
+                        logger.info("Autoscaler for %s is in cooldown, cannot scale up now", spec["cluster"])
                         return
                 await customobjectsapi.patch_namespaced_custom_object_scale(
                     group="kubernetes.dask.org",
@@ -758,7 +759,7 @@ async def daskautoscaler_adapt(spec, name, namespace, logger, **kwargs):
                     name=f"{spec['cluster']}-default",
                     body={"spec": {"replicas": desired_workers}},
                 )
-                cooldown_until = time.time() + 220
+                cooldown_until = time.time() + 300
                 await customobjectsapi.patch_namespaced_custom_object(
                     group="kubernetes.dask.org",
                     version="v1",
@@ -777,7 +778,7 @@ async def daskautoscaler_adapt(spec, name, namespace, logger, **kwargs):
                 )
             else:
                 if time.time() < cooldown_until:
-                    logger.info("Autoscaler for %s is in cooldown", spec["cluster"])
+                    logger.info("Autoscaler for %s is in cooldown, cannot scale down now", spec["cluster"])
                     return
                 else:
                     await customobjectsapi.patch_namespaced_custom_object_scale(
