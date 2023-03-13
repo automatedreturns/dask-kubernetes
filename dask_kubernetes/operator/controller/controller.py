@@ -754,6 +754,7 @@ async def daskautoscaler_adapt(spec, name, namespace, logger, **kwargs):
                     if (time.time() - adapt_state['scaleup']['last_request']) > 60:
                         if adapt_state['scaleup'] is not None:
                             if adapt_state['scaleup']['desired_size'] > desired_workers:
+                                adapt_state['scaleup']['last_request'] = time.time()
                                 return
                             # if time.time() < cooldown_until:
                             #     if (cooldown_until - time.time()) > 180:
