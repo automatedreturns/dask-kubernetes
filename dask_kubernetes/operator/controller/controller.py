@@ -321,6 +321,7 @@ async def daskworkergroup_create(spec, name, namespace, logger, **kwargs):
         namespace=namespace,
         logger=logger,
         new=spec["worker"]["replicas"],
+        initial=True,
         **kwargs,
     )
 
@@ -417,8 +418,10 @@ worker_group_scale_locks = defaultdict(lambda: asyncio.Lock())
 
 @kopf.on.field("daskworkergroup.kubernetes.dask.org", field="spec.worker.replicas")
 async def daskworkergroup_replica_update(
-        name, namespace, meta, spec, new, body, logger, **kwargs
+        name, namespace, meta, spec, new, body, logger, initial=False, **kwargs
 ):
+    if not initial:
+        return
     cluster_name = spec["cluster"]
 
     # Replica updates can come in quick succession and the changes must be applied atomically to ensure
@@ -456,7 +459,6 @@ async def daskworkergroup_replica_update(
             workers_needed = desired_workers - current_workers
             annotations = _get_dask_cluster_annotations(meta)
             if workers_needed > 0:
-                return
                 for _ in range(workers_needed):
                     data = build_worker_pod_spec(
                         worker_group_name=name,
@@ -476,7 +478,6 @@ async def daskworkergroup_replica_update(
                     f"Scaled worker group {name} up to {desired_workers} workers."
                 )
             if workers_needed < 0:
-                return
                 worker_ids = await retire_workers(
                     n_workers=-workers_needed,
                     scheduler_service_name=f"{cluster_name}-scheduler",
