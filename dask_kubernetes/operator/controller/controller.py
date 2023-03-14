@@ -746,8 +746,12 @@ async def daskautoscaler_adapt(spec, name, namespace, logger, **kwargs):
             max_scale_down = int(current_replicas * 0.25)
             max_scale_down = 1 if max_scale_down == 0 else max_scale_down
             desired_workers = max(current_replicas - max_scale_down, desired_workers)
-
-        # Update the default DaskWorkerGroup
+        if adapt_state['scaleup'] is not None:
+            if spec['maximum'] == adapt_state['scaleup']['desired_size'] and (
+                    time.time() - adapt_state['scaleup']['last_request']) < 300:
+                logger.info(f"Desired maximum scale up not yet completed {adapt_state}")
+                return
+                # Update the default DaskWorkerGroup
         if desired_workers != current_replicas:
             if desired_workers > current_replicas:
                 if adapt_state['scaleup'] is not None:
@@ -759,11 +763,6 @@ async def daskautoscaler_adapt(spec, name, namespace, logger, **kwargs):
                             logger.info(f"60 seconds elapsed {adapt_state} but already scale up is in progress")
                             logger.info(f"{adapt_state}")
                             return
-                        # if time.time() < cooldown_until:
-                        #     if (cooldown_until - time.time()) > 180:
-                        #         logger.info(f"Remaining cooldown {(cooldown_until - time.time())}")
-                        #         logger.info("Autoscaler for %s is in cooldown, cannot scale up now", spec["cluster"])
-                        #         return
                         adapt_state['scaleup'] = {'desired_size': desired_workers, 'last_request': time.time()}
                         await customobjectsapi.patch_namespaced_custom_object_scale(
                             group="kubernetes.dask.org",
@@ -819,11 +818,6 @@ async def daskautoscaler_adapt(spec, name, namespace, logger, **kwargs):
                     if adapt_state['scaleup'] is None:
                         adapt_state['scaleup'] = {'desired_size': desired_workers, 'last_request': time.time()}
             else:
-                # if time.time() < cooldown_until:
-                #     logger.info(f"Remaining cooldown {(cooldown_until - time.time())}")
-                #     logger.info("Autoscaler for %s is in cooldown, cannot scale down now", spec["cluster"])
-                #     return
-                # else:
                 if adapt_state['scaleup'] is not None:
                     if (time.time() - adapt_state['scaleup']['last_request']) < 240:
                         adapt_state['scaledown'] = {'desired_size': desired_workers, 'last_request': time.time()}
