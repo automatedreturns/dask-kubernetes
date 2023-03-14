@@ -677,6 +677,80 @@ async def daskautoscaler_create(spec, name, namespace, logger, **kwargs):
 adapt_state = {"scaleup": None, "scaledown": None}
 
 
+async def scale(new, spec, logger):
+    name = 'dask-cluster-default'
+    cluster_name = 'dask-cluster'
+    namespace = 'default'
+    async with worker_group_scale_locks[f"{namespace}/{name}"]:
+        async with kubernetes.client.api_client.ApiClient() as api_client:
+            customobjectsapi = kubernetes.client.CustomObjectsApi(api_client)
+            corev1api = kubernetes.client.CoreV1Api(api_client)
+
+            try:
+                cluster = await customobjectsapi.get_namespaced_custom_object(
+                    group="kubernetes.dask.org",
+                    version="v1",
+                    plural="daskclusters",
+                    namespace=namespace,
+                    name=cluster_name,
+                )
+            except ApiException as e:
+                if e.status == 404:
+                    # No need to scale if worker group is deleted, pods will be cleaned up
+                    return
+                else:
+                    raise e
+
+            cluster_labels = cluster.get("metadata", {}).get("labels", {})
+
+            workers = await corev1api.list_namespaced_pod(
+                namespace=namespace,
+                label_selector=f"dask.org/workergroup-name={name}",
+            )
+            current_workers = len(
+                [w for w in workers.items if w.status.phase != "Terminating"]
+            )
+            desired_workers = new
+            workers_needed = desired_workers - current_workers
+            annotations = {"kubernetes.io/psp": "eks.privileged"}
+            if workers_needed > 0:
+                for _ in range(workers_needed):
+                    data = build_worker_pod_spec(
+                        worker_group_name=name,
+                        namespace=namespace,
+                        cluster_name=cluster_name,
+                        uuid=uuid4().hex[:10],
+                        spec=spec,
+                        annotations=annotations,
+                    )
+                    kopf.adopt(data)
+                    kopf.label(data, labels=cluster_labels)
+                    await corev1api.create_namespaced_pod(
+                        namespace=namespace,
+                        body=data,
+                    )
+                logger.info(
+                    f"Scaled worker group {name} up to {desired_workers} workers."
+                )
+            if workers_needed < 0:
+                worker_ids = await retire_workers(
+                    n_workers=-workers_needed,
+                    scheduler_service_name=f"{cluster_name}-scheduler",
+                    worker_group_name=name,
+                    namespace=namespace,
+                    logger=logger,
+                )
+                logger.info(f"Workers to close: {worker_ids}")
+                for wid in worker_ids:
+                    await corev1api.delete_namespaced_pod(
+                        name=wid,
+                        namespace=namespace,
+                    )
+                logger.info(
+                    f"Scaled worker group {name} down to {desired_workers} workers."
+                )
+
+
 @kopf.timer("daskautoscaler.kubernetes.dask.org", interval=5.0)
 async def daskautoscaler_adapt(spec, name, namespace, logger, **kwargs):
     async with kubernetes.client.api_client.ApiClient() as api_client:
@@ -717,7 +791,7 @@ async def daskautoscaler_adapt(spec, name, namespace, logger, **kwargs):
             namespace=namespace,
             name=f"{spec['cluster']}-default",
         )
-
+        worker_spec = worker_group_resource['spec']['worker']['spec']
         current_replicas = int(worker_group_resource["spec"]["worker"]["replicas"])
         cooldown_until = float(
             autoscaler_resource.get("metadata", {})
@@ -766,15 +840,16 @@ async def daskautoscaler_adapt(spec, name, namespace, logger, **kwargs):
                             logger.info(f"60 seconds elapsed {adapt_state} but already scale up is in progress")
                             logger.info(f"{adapt_state}")
                             return
-                        adapt_state['scaleup'] = {'desired_size': desired_workers, 'last_request': time.time()}
-                        await customobjectsapi.patch_namespaced_custom_object_scale(
-                            group="kubernetes.dask.org",
-                            version="v1",
-                            plural="daskworkergroups",
-                            namespace=namespace,
-                            name=f"{spec['cluster']}-default",
-                            body={"spec": {"replicas": desired_workers}},
-                        )
+                        await scale(new=desired_workers, spec=worker_spec, logger=logger)
+                        # adapt_state['scaleup'] = {'desired_size': desired_workers, 'last_request': time.time()}
+                        # await customobjectsapi.patch_namespaced_custom_object_scale(
+                        #     group="kubernetes.dask.org",
+                        #     version="v1",
+                        #     plural="daskworkergroups",
+                        #     namespace=namespace,
+                        #     name=f"{spec['cluster']}-default",
+                        #     body={"spec": {"replicas": desired_workers}},
+                        # )
                         cooldown_until = time.time() + 300
                         await customobjectsapi.patch_namespaced_custom_object(
                             group="kubernetes.dask.org",
@@ -830,14 +905,15 @@ async def daskautoscaler_adapt(spec, name, namespace, logger, **kwargs):
                 if adapt_state['scaledown'] is None:
                     adapt_state['scaledown'] = {'desired_size': desired_workers, 'last_request': time.time()}
                     adapt_state['scaleup'] = {'desired_size': desired_workers, 'last_request': time.time()}
-                await customobjectsapi.patch_namespaced_custom_object_scale(
-                    group="kubernetes.dask.org",
-                    version="v1",
-                    plural="daskworkergroups",
-                    namespace=namespace,
-                    name=f"{spec['cluster']}-default",
-                    body={"spec": {"replicas": adapt_state['scaledown']['desired_size']}},
-                )
+                await scale(new=desired_workers, spec=worker_spec, logger=logger)
+                # await customobjectsapi.patch_namespaced_custom_object_scale(
+                #     group="kubernetes.dask.org",
+                #     version="v1",
+                #     plural="daskworkergroups",
+                #     namespace=namespace,
+                #     name=f"{spec['cluster']}-default",
+                #     body={"spec": {"replicas": adapt_state['scaledown']['desired_size']}},
+                # )
 
             logger.info(
                 "Autoscaler updated %s worker count from %d to %d",
