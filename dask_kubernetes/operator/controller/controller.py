@@ -83,7 +83,7 @@ def build_scheduler_service_spec(cluster_name, spec, annotations):
 
 
 def build_worker_pod_spec(
-    worker_group_name, namespace, cluster_name, uuid, spec, annotations
+        worker_group_name, namespace, cluster_name, uuid, spec, annotations
 ):
     spec = copy.deepcopy(spec)
 
@@ -270,11 +270,11 @@ async def daskcluster_create_components(spec, name, namespace, logger, patch, **
 
 @kopf.on.field("service", field="status", labels={"dask.org/component": "scheduler"})
 async def handle_scheduler_service_status(
-    spec, labels, status, namespace, logger, **kwargs
+        spec, labels, status, namespace, logger, **kwargs
 ):
     # If the Service is a LoadBalancer with no ingress endpoints mark the cluster as Pending
     if spec["type"] == "LoadBalancer" and not len(
-        status.get("load_balancer", {}).get("ingress", [])
+            status.get("load_balancer", {}).get("ingress", [])
     ):
         phase = "Pending"
     # Otherwise mark it as Running
@@ -326,7 +326,7 @@ async def daskworkergroup_create(spec, name, namespace, logger, **kwargs):
 
 
 async def retire_workers(
-    n_workers, scheduler_service_name, worker_group_name, namespace, logger
+        n_workers, scheduler_service_name, worker_group_name, namespace, logger
 ):
     # Try gracefully retiring via the HTTP API
     dashboard_address = await get_scheduler_address(
@@ -417,7 +417,7 @@ worker_group_scale_locks = defaultdict(lambda: asyncio.Lock())
 
 @kopf.on.field("daskworkergroup.kubernetes.dask.org", field="spec.worker.replicas")
 async def daskworkergroup_replica_update(
-    name, namespace, meta, spec, new, body, logger, **kwargs
+        name, namespace, meta, spec, new, body, logger, **kwargs
 ):
     cluster_name = spec["cluster"]
 
@@ -671,7 +671,7 @@ async def daskautoscaler_create(spec, name, namespace, logger, **kwargs):
         logger.info(f"Successfully adopted by {spec['cluster']}")
 
 
-@kopf.timer("daskautoscaler.kubernetes.dask.org", interval=5.0)
+@kopf.timer("daskautoscaler.kubernetes.dask.org", interval=30.0)
 async def daskautoscaler_adapt(spec, name, namespace, logger, **kwargs):
     async with kubernetes.client.api_client.ApiClient() as api_client:
         coreapi = kubernetes.client.CoreV1Api(api_client)
@@ -755,7 +755,7 @@ async def daskautoscaler_adapt(spec, name, namespace, logger, **kwargs):
                 body={"spec": {"replicas": desired_workers}},
             )
 
-            cooldown_until = time.time() + 15
+            cooldown_until = time.time() + 220
 
             await customobjectsapi.patch_namespaced_custom_object(
                 group="kubernetes.dask.org",
