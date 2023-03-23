@@ -321,6 +321,7 @@ async def daskworkergroup_create(spec, name, namespace, logger, **kwargs):
         namespace=namespace,
         logger=logger,
         new=spec["worker"]["replicas"],
+        initial=True,
         **kwargs,
     )
 
@@ -417,11 +418,12 @@ worker_group_scale_locks = defaultdict(lambda: asyncio.Lock())
 
 @kopf.on.field("daskworkergroup.kubernetes.dask.org", field="spec.worker.replicas")
 async def daskworkergroup_replica_update(
-        name, namespace, meta, spec, new, body, logger, **kwargs
+        name, namespace, meta, spec, new, body, logger, initial=False, **kwargs
 ):
     cluster_name = spec["cluster"]
-
-    # Replica updates can come in quick succession and the changes must be applied atomically to ensure
+    if not initial:
+        return
+        # Replica updates can come in quick succession and the changes must be applied atomically to ensure
     # the number of workers ends in the correct state
     async with worker_group_scale_locks[f"{namespace}/{name}"]:
         async with kubernetes.client.api_client.ApiClient() as api_client:
